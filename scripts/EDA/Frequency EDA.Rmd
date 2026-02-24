@@ -1,0 +1,133 @@
+---
+title: "Frequency EDA"
+output: html_document
+---
+
+```{r}
+# Load libraries
+library(data.table)
+library(here)
+library(ggplot2)
+library(ggrepel)
+
+project.dir = here()
+
+# Load data
+dt = fread(here("data", "sim-modeling-dataset.csv"))
+
+# Load helper functions
+source(here("scripts", "EDA", "Frequency EDA Helper.R"))
+
+# Global variables
+cat_cols = c("year", "nb.rb", "driver.gender", "marital.status",
+             "ncd.level", "region", "body.code", "seats", "fuel.type")
+
+num_cols = c("driver.age", "yrs.licensed", "vehicle.age", "vehicle.value",
+             "ccm", "hp", "weight", "length", "width", "height", "prior.claims")
+
+cols = c(cat_cols, num_cols)
+  
+```
+
+### Data Preparation
+Turn categorical features into factors & Set base level to category with most exposures
+
+```{r}
+# Set categorical data as factors
+dt = set_categorical_features(dt)
+
+# Set levels for categorical data
+dt = set_categorical_levels(dt, cat_cols)
+
+```
+
+### One-Way Frequency Models
+I plotted the AIC & Deviance of every possible one-way model, including the null model which is just the intercept. 
+Each one-way model is a Poisson regression model with claim count as the dependent variable and log(exposure) as the offset
+Features to the bottom left of the figure have more predictive power, so I'll prioritize these features when modeling. 
+These features include: ncd.level, year, yrs.licensed, nb.rb, region, prior.claims, vehicle.age, driver.age, height, body.code, marital.status
+
+```{r fig.width=15, fig.height=8}
+
+# one way frequency models
+one_way_dt = compute_frequency_aic_dev(dt, vars=cols)
+
+# Plot the AIC-deviance plot
+plt = ggplot(one_way_dt, aes(x = AIC, y = Deviance, label = vars)) +
+      geom_point() +
+      geom_text_repel(max.overlaps = Inf)
+show(plt)
+
+```
+### Numeric Features EDA
+
+yrs.licensed: 
+
+There's a clear negative relation between frequency and yrs.licensed. 
+Yrs.licensed values (2, 4] have negligible differences in frequency so they can be binned together.
+Yrs.licensed values (5,10] have negligible differences in frequency so they can be binned together. 
+
+New features for frequency modeling will be labeled with a ".f" 
+yrs.lic.f: new features with breaks ->
+  (1], (2], [3, 4], 5, 6+
+
+
+```{r}
+# numeric frequency relationship 
+col = "yrs.licensed"
+freq = numeric_freq_relation(col=col, dt = dt, n_bins = 10, bin_data = FALSE)
+
+# construct new feature for modeling
+dt = feature_engineer_numeric(dt, col="yrs.licensed", new_col="yrs.licensed.f", breaks=c(0, 1, 2, 4, 5, Inf), labels=c("1", "2", "[3, 4]", "5", "6+"))
+
+
+
+
+
+
+
+```
+
+```{r}
+
+# Bin data s.t. exposures are approximately even across bins
+x_col = "yrs.licensed"
+n_bins = 5
+dt_exp = dt[, .(exp=sum(exposure)), by = .(x = get(x_col))][order(x)]
+total_exp = sum(dt_exp$exp)
+target_exp = total_exp/n_bins
+dt_exp[, cumexp := cumsum(exp)]
+dt_exp[, bin_id := pmin(n_bins, ceiling(cumexp/target_exp))]
+
+# Create bin edges
+bin_min = dt_exp[, .(left_bin=min(x)), .(bin_id)]
+bin_max = dt_exp[, .(right_bin=max(x)), .(bin_id)]
+bin_edges = merge(bin_min, bin_max, by="bin_id")
+breaks = c(min(bin_edges$left_bin) - 1, sort(unique(bin_edges$right_bin)))
+
+
+```
+
+
+
+
+
+```{r fig.width=15, fig.height=8}
+# numeric frequency relationship 
+col = "driver.age"
+freq = numeric_freq_relation(col=col, dt = dt, n_bins = 30, bin_data = FALSE)
+freq = numeric_freq_relation(col=col, dt = dt, n_bins = 15, bin_data = TRUE)
+
+```
+
+dta$drv.age.gr1[dta$driver.age %in% 18:33] <- "18-33"
+dta$drv.age.gr1[dta$driver.age %in% 34:38] <- "34-38"
+dta$drv.age.gr1[dta$driver.age %in% 39:43] <- "39-43"
+dta$drv.age.gr1[dta$driver.age %in% 44:50] <- "44-50"
+dta$drv.age.gr1[dta$driver.age %in% 51:60] <- "51-60"
+dta$drv.age.gr1[dta$driver.age %in% 61:69] <- "61-69"
+dta$drv.age.gr1[dta$driver.age %in% 70:93] <- "70+"
+
+
+
+
